@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- <title>Lecteur France Culture - Timeshift v6+ (auto)</title> -->
+  <title>Lecteur France Culture</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Arial,sans-serif;margin:16px;line-height:1.45}
+    h1{font-weight:500;margin:0 0 12px 0}
+    .row{margin:10px 0;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+    label{display:inline-block;min-width:180px}
+    input[type="text"],input[type="number"]{width:420px;max-width:100%}
+    input.small{width:80px}
+    .fields{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+    .fields input{width:72px}
+    .fields .w60{width:60px}
+    .fields .w90{width:90px}
+    audio{width:100%;margin-top:8px}
+    button{margin-right:8px}
+    #log{font-size:14px;color:#333;white-space:pre-wrap;background:#f6f6f6;border:1px solid #ddd;padding:8px;border-radius:4px;max-height:300px;overflow:auto}
+    .muted{opacity:.85}
+    .ok{color:#0a7}
+    .warn{color:#a60}
+    .err{color:#b00}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+    hr{border:none;border-top:1px solid #ddd;margin:14px 0}
+    em.attention {color: darkgreen;}
+  </style>
+</head>
+<body>
+<!-- <h1>lecteur minimal timeshift v6+ (auto)</h1> -->
+<h1>lecteur FC minimal</h1>
+<small>version : timeshift - version v6+ (auto+)</small>
+
+<div class="row mono muted">
+  <small style="color: grey;">mode recommande: ?delay=. bouton "journal 19 h" calcule europe/paris -> delay. demarrage auto au clic.</small>
+</div>
+
+<div class="row">
+  <button id="btn19h">lire le journal de 19h</button>
+  <span id="last19h" class="mono muted"></span>
+</div>
+
+<hr>
+
+<div class="row">
+  <label>generateur de timestamp (<em class="attention">heure locale navigateur</em>):</label>
+  <div class="fields">
+    <span>jj</span><input id="f_j" type="number" class="w60">
+    <span>mm</span><input id="f_m" type="number" class="w60">
+    <span>aaaa</span><input id="f_a" type="number" class="w90">
+    <span>hh</span><input id="f_h" type="number" class="w60">
+    <span>min</span><input id="f_min" type="number" class="w60">
+    <span>ss</span><input id="f_s" type="number" class="w60">
+    <button id="genTs">generer timestamp</button>
+    <button id="fillIsoFromFields">remplir <em>iso (utc)</em> depuis ces champs</button>
+    <button id="fillFieldsFromIso">remplir ces champs depuis iso</button>
+  </div>
+</div>
+
+<hr>
+
+<div class="row">
+  <label for="baseDelay">endpoint par retard:</label>
+  <input id="baseDelay" type="text" value="https://stream.radiofrance.fr/franceculture/franceculture_hifi.m3u8?id=radiofrance">
+</div>
+<div class="row">
+  <label for="ts">timestamp unix (secondes):</label>
+  <input id="ts" type="number" placeholder="ex: 1730305200">
+  <button id="playByTs">lire par timestamp (?delay=)</button>
+</div>
+
+<hr>
+
+<div class="row">
+  <label for="baseDate">endpoint par date:</label>
+  <input id="baseDate" type="text" value="https://stream.radiofrance.fr/franceculture/franceculture.m3u8?id=radiofrance">
+</div>
+<div class="row">
+  <label for="iso">date <em class="attention">iso (utc)</em>:</label>
+  <input id="iso" type="text" placeholder="YYYY-MM-DDTHH:MM:SS.000Z">
+  <button id="playByDate">lire par date (m3u8 ?date=)</button>
+  <button id="playIsoAsDelay">lire iso via delay (calcule timestamp -> delay)</button>
+</div>
+
+<hr>
+
+<div class="row">
+  <label for="liveUrl">direct hls:</label>
+  <input id="liveUrl" type="text" value="https://stream.radiofrance.fr/franceculture/franceculture_hifi.m3u8">
+  <button id="playLive">direct</button>
+</div>
+
+<audio id="player" controls preload="none" playsinline></audio>
+
+<div id="log" class="muted mono"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js" crossorigin="anonymous"></script>
+<script>
+(function(){
+  var audio = document.getElementById("player");
+  var log = document.getElementById("log");
+
+  var baseDate = document.getElementById("baseDate");
+  var iso = document.getElementById("iso");
+  var playByDate = document.getElementById("playByDate");
+  var playIsoAsDelay = document.getElementById("playIsoAsDelay");
+
+  var baseDelay = document.getElementById("baseDelay");
+  var ts = document.getElementById("ts");
+  var playByTs = document.getElementById("playByTs");
+
+  var liveUrl = document.getElementById("liveUrl");
+  var playLive = document.getElementById("playLive");
+
+  var fj = document.getElementById("f_j");
+  var fm = document.getElementById("f_m");
+  var fa = document.getElementById("f_a");
+  var fh = document.getElementById("f_h");
+  var fmin = document.getElementById("f_min");
+  var fs = document.getElementById("f_s");
+  var genTs = document.getElementById("genTs");
+  var fillIsoFromFields = document.getElementById("fillIsoFromFields");
+  var fillFieldsFromIso = document.getElementById("fillFieldsFromIso");
+
+  var btn19h = document.getElementById("btn19h");
+  var last19h = document.getElementById("last19h");
+
+  var hls = null;
+
+//réglages son
+
+  // --- volume ---
+  // réglez ici :
+  let INITIAL_VOLUME = 0.10;   // 10 % au démarrage
+  // let MAX_VOLUME     = 0.10;   // 10 % max (mettez null pour ne pas brider)
+  let MAX_VOLUME     = null;   // 10 % max (mettez null pour ne pas brider)
+
+  // surcharge possible via l’url :
+  // ?vol=10 (=> 10 %) et ?maxvol=50 (=> 50 %)
+  (function(){
+    const qs = new URLSearchParams(location.search);
+    const parsePct = (x) => {
+      const n = parseFloat(x);
+      if (!isFinite(n)) return null;
+      // on accepte "0.1" (ratio) ou "10" (pour 10 %)
+      return n <= 1 ? Math.max(0, Math.min(1, n)) : Math.max(0, Math.min(1, n/100));
+    };
+    if (qs.has('vol'))   { const v = parsePct(qs.get('vol'));   if (v !== null) INITIAL_VOLUME = v; }
+    // if (qs.has('maxvol')){ const v = parsePct(qs.get('maxvol'));if (v !== null) MAX_VOLUME     = v; }
+  })();
+
+
+
+
+
+
+
+  function pad2(n){ return String(n).padStart(2,"0"); }
+
+  function logln(s, cls){
+    var e = document.createElement("div");
+    if(cls) e.className = cls;
+    e.textContent = s;
+    log.appendChild(e);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function destroyHls(){
+    if(hls){
+      try { hls.destroy(); } catch(e){}
+      hls = null;
+    }
+    audio.removeAttribute("src");
+    audio.load();
+  }
+
+  function tryPlayNow(){
+    // appeler play() immediatement pendant le handler de clic pour respecter la politique autoplay
+    var p = audio.play();
+    if(p && typeof p.then === "function"){
+      p.then(function(){ logln("lecture demarree", "ok"); })
+       .catch(function(e){ logln("lecture en attente (clic play peut etre necessaire): " + e.name, "warn"); });
+    }
+  }
+
+  function playUrl(url){
+    destroyHls();
+    audio.autoplay = true;
+    if(window.Hls && Hls.isSupported()){
+     // hls = new Hls({liveDurationInfinity:true, enableWorker:true});
+
+      hls = new Hls({
+        liveDurationInfinity: true,
+        enableWorker: true,
+        maxBufferLength: 10,
+        maxMaxBufferLength: 60,
+        backBufferLength: 0
+      });
+
+      hls.attachMedia(audio);
+      hls.on(Hls.Events.MEDIA_ATTACHED, function(){ hls.loadSource(url); });
+      hls.on(Hls.Events.MANIFEST_PARSED, function(){
+        logln("manifest ok: " + url, "ok");
+        tryPlayNow();
+      });
+      // hls.on(Hls.Events.ERROR, function(e, data){ logln("hls error: " + data.type + " - " + data.details, "err"); });
+
+      hls.on(Hls.Events.ERROR, function(e, data){
+        if (!data.fatal) { return; }
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          logln("hls fatal network: " + data.details + " -> retry startLoad()", "err");
+          try { hls.startLoad(); } catch(_) {}
+        } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          logln("hls fatal media: " + data.details + " -> recoverMediaError()", "err");
+          try { hls.recoverMediaError(); } catch(_) {}
+        } else {
+          logln("hls fatal: " + data.type + " - " + data.details, "err");
+          try { hls.destroy(); } catch(_) {}
+        }
+      });
+
+    } else {
+      audio.src = url;
+      audio.addEventListener("loadedmetadata", function once(){
+        audio.removeEventListener("loadedmetadata", once);
+        logln("manifest ok (natif): " + url, "ok");
+        tryPlayNow();
+      });
+    }
+    // appel immediat pour rester dans la pile de l evenement utilisateur
+    tryPlayNow();
+  }
+
+  function toIsoUtc(d){
+    return d.getUTCFullYear()+"-"+pad2(d.getUTCMonth()+1)+"-"+pad2(d.getUTCDate())+"T"+
+           pad2(d.getUTCHours())+":"+pad2(d.getUTCMinutes())+":"+pad2(d.getUTCSeconds())+".000Z";
+  }
+
+  function prefillMinus20h(){
+    var base = new Date(Date.now() - 20*3600*1000);
+    iso.value = toIsoUtc(base);
+    fj.value = base.getDate();
+    fm.value = base.getMonth()+1;
+    fa.value = base.getFullYear();
+    fh.value = base.getHours();
+    fmin.value = base.getMinutes();
+    fs.value = base.getSeconds();
+  }
+
+  function buildLocalDateFromFields(){
+    var j = parseInt(fj.value,10);
+    var m = parseInt(fm.value,10);
+    var a = parseInt(fa.value,10);
+    var h = parseInt(fh.value,10);
+    var mi = parseInt(fmin.value,10);
+    var s = parseInt(fs.value,10);
+    if([j,m,a,h,mi,s].some(function(v){ return isNaN(v); })){
+      throw new Error("champs incomplets");
+    }
+    return new Date(a, (m-1), j, h, mi, s, 0);
+  }
+
+  function isoToUnix(isoStr){
+    var d = new Date(isoStr);
+    if(isNaN(d.getTime())) throw new Error("iso invalide");
+    return Math.floor(d.getTime()/1000);
+  }
+
+  function getParisParts(date){
+    var fmt = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Paris",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      hour12: false
+    });
+    var p = fmt.formatToParts(date);
+    var map = {}; p.forEach(function(x){ map[x.type]=x.value; });
+    return {
+      y: parseInt(map.year,10),
+      m: parseInt(map.month,10),
+      d: parseInt(map.day,10),
+      H: parseInt(map.hour,10),
+      M: parseInt(map.minute,10),
+      S: parseInt(map.second,10)
+    };
+  }
+
+  function getParisOffsetMinutesForDate(y,m,d){
+    var fmt = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Paris",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      timeZoneName: "shortOffset", hour12: false
+    });
+    var test = new Date(Date.UTC(y, m-1, d, 12, 0, 0));
+    var parts = fmt.formatToParts(test);
+    var tz = parts.find(function(x){ return x.type === "timeZoneName"; });
+    var txt = tz ? tz.value : "UTC+00:00";
+    var m1 = txt.match(/([+-])(\d{1,2})(?::?(\d{2}))?/);
+    if(!m1) return 0;
+    var sign = m1[1] === "-" ? -1 : 1;
+    var hh = parseInt(m1[2]||"0",10);
+    var mm = parseInt(m1[3]||"0",10);
+    return sign*(hh*60+mm);
+  }
+
+  function paris19hToUnix(y,m,d){
+    var offsetMin = getParisOffsetMinutesForDate(y,m,d);
+    var utcMs = Date.UTC(y, m-1, d, 19, 0, 0) - offsetMin*60000;
+    return Math.floor(utcMs/1000);
+  }
+
+  function computeLast19hUnix(){
+    var now = new Date();
+    var p = getParisParts(now);
+    var targetY = p.y, targetM = p.m, targetD = p.d;
+    if(p.H < 19){
+      var prev = new Date(Date.UTC(p.y, p.m-1, p.d, 12, 0, 0) - 24*3600*1000);
+      var pp = getParisParts(prev);
+      targetY = pp.y; targetM = pp.m; targetD = pp.d;
+    }
+    return paris19hToUnix(targetY, targetM, targetD);
+  }
+
+  function playDelayForUnix(unix){
+    var b = baseDelay.value.trim();
+    var now = Math.floor(Date.now()/1000);
+    var delay = Math.max(0, now - unix);
+    var sep = b.indexOf("?") >= 0 ? "&" : "?";
+    var url = b + sep + "delay=" + delay;
+    logln("lecture par timestamp => delay=" + delay + " s : " + url);
+    playUrl(url);
+  }
+
+  // listeners
+  document.getElementById("playByDate").addEventListener("click", function(){
+    var b = baseDate.value.trim();
+    var d = iso.value.trim();
+    if(!b || !d){ logln("renseigner endpoint par date et une date iso.", "err"); return; }
+    var sep = b.indexOf("?") >= 0 ? "&" : "?";
+    var url = b + sep + "date=" + encodeURIComponent(d);
+    logln("lecture par date: " + url);
+    playUrl(url);
+  });
+
+  playIsoAsDelay.addEventListener("click", function(){
+    try{
+      var b = baseDelay.value.trim();
+      if(!b){ logln("endpoint par retard manquant.", "err"); return; }
+      var u = isoToUnix(iso.value.trim());
+      playDelayForUnix(u);
+    }catch(e){
+      logln("erreur: " + e.message, "err");
+    }
+  });
+
+  playByTs.addEventListener("click", function(){
+    var v = parseInt(ts.value, 10);
+    if(!v){ logln("renseigner un timestamp.", "err"); return; }
+    playDelayForUnix(v);
+  });
+
+  playLive.addEventListener("click", function(){
+    var url = liveUrl.value.trim();
+    if(!url){ logln("renseigner l url de direct hls.", "err"); return; }
+    logln("lecture direct: " + url);
+    playUrl(url);
+  });
+
+  genTs.addEventListener("click", function(){
+    try{
+      var d = buildLocalDateFromFields();
+      var unix = Math.floor(d.getTime()/1000);
+      ts.value = unix;
+      logln("timestamp genere (local -> unix): " + unix + " (" + d.toString() + ")", "ok");
+    }catch(e){
+      logln("erreur: " + e.message, "err");
+    }
+  });
+
+  fillIsoFromFields.addEventListener("click", function(){
+    try{
+      var d = buildLocalDateFromFields();
+      iso.value = toIsoUtc(d);
+      logln("iso renseigne depuis champs: " + iso.value, "ok");
+    }catch(e){
+      logln("erreur: " + e.message, "err");
+    }
+  });
+
+  btn19h.addEventListener("click", function(){
+    try{
+      var u = computeLast19hUnix();
+      var dt = new Date(u*1000).toISOString();
+      last19h.textContent = "derniere 19h (utc): " + dt + " | unix " + u;
+      playDelayForUnix(u);
+    }catch(e){
+      logln("erreur bouton 19h: " + e.message, "err");
+    }
+  });
+
+  // init
+
+
+  // volume initial + bridage
+  audio.volume = Math.max(0, Math.min(1, INITIAL_VOLUME));
+  logln("volume initial : " + Math.round(audio.volume*100) + " %", "muted");
+  // audio.addEventListener("volumechange", function(){
+  //   if (MAX_VOLUME != null && audio.volume > MAX_VOLUME){
+  //     audio.volume = MAX_VOLUME;
+  //     logln("volume limité à " + Math.round(MAX_VOLUME*100) + " %", "warn");
+  //   }
+  // });
+
+
+
+  prefillMinus20h();
+  logln("pret. demarrage auto au clic (sinon clic sur play si le navigateur l exige).", "muted");
+})();
+</script>
+</body>
+</html>
