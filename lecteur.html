@@ -3,7 +3,6 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <!-- <title>Lecteur France Culture - Timeshift v6+ (auto)</title> -->
   <title>Lecteur France Culture</title>
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Arial,sans-serif;margin:16px;line-height:1.45}
@@ -29,7 +28,6 @@
   </style>
 </head>
 <body>
-<!-- <h1>lecteur minimal timeshift v6+ (auto)</h1> -->
 <h1>lecteur FC minimal</h1>
 <small>version : timeshift - version v6+ (auto+)</small>
 
@@ -54,7 +52,7 @@
     <span>min</span><input id="f_min" type="number" class="w60">
     <span>ss</span><input id="f_s" type="number" class="w60">
     <button id="genTs">generer timestamp</button>
-    <button id="fillIsoFromFields">remplir <em>iso (utc)</em> depuis ces champs</button>
+    <button id="fillIsoFromFields">remplir iso (utc) depuis ces champs</button>
     <button id="fillFieldsFromIso">remplir ces champs depuis iso</button>
   </div>
 </div>
@@ -92,6 +90,14 @@
   <button id="playLive">direct</button>
 </div>
 
+<!-- controle de gain logiciel (web audio) -->
+<div class="row">
+  <label for="gain">gain logiciel (%)</label>
+  <input id="gain" type="range" min="0" max="300" step="5" value="100">
+  <span id="gainVal" class="mono muted">100%</span>
+  <small class="muted">url: ?gain=150 (et ?vol=10)</small>
+</div>
+
 <audio id="player" controls preload="none" playsinline></audio>
 
 <div id="log" class="muted mono"></div>
@@ -127,35 +133,78 @@
   var btn19h = document.getElementById("btn19h");
   var last19h = document.getElementById("last19h");
 
+  var gainSlider = document.getElementById("gain");
+  var gainVal = document.getElementById("gainVal");
+
   var hls = null;
 
-//réglages son
+  // --- volume initial et params url ---
+  let INITIAL_VOLUME = 0.15;   // 15% au demarrage
+  let MAX_VOLUME = null;       // null = pas de bridage du volume HTMLMediaElement
 
-  // --- volume ---
-  // réglez ici :
-  let INITIAL_VOLUME = 0.10;   // 10 % au démarrage
-  // let MAX_VOLUME     = 0.10;   // 10 % max (mettez null pour ne pas brider)
-  let MAX_VOLUME     = null;   // 10 % max (mettez null pour ne pas brider)
+  // --- gain logiciel (Web Audio) ---
+  let audioCtx = null;
+  let gainNode = null;
+  let GAIN_PERCENT = 100; // 100% = x1.0
 
-  // surcharge possible via l’url :
-  // ?vol=10 (=> 10 %) et ?maxvol=50 (=> 50 %)
+  // surcharge via URL: ?vol=15 (ou 0.15), ?gain=150
   (function(){
     const qs = new URLSearchParams(location.search);
     const parsePct = (x) => {
       const n = parseFloat(x);
       if (!isFinite(n)) return null;
-      // on accepte "0.1" (ratio) ou "10" (pour 10 %)
       return n <= 1 ? Math.max(0, Math.min(1, n)) : Math.max(0, Math.min(1, n/100));
     };
-    if (qs.has('vol'))   { const v = parsePct(qs.get('vol'));   if (v !== null) INITIAL_VOLUME = v; }
-    // if (qs.has('maxvol')){ const v = parsePct(qs.get('maxvol'));if (v !== null) MAX_VOLUME     = v; }
+    if (qs.has("vol")) {
+      const v = parsePct(qs.get("vol"));
+      if (v !== null) INITIAL_VOLUME = v;
+    }
+    if (qs.has("gain")) {
+      const g = parseInt(qs.get("gain"), 10);
+      if (!isNaN(g) && g >= 0 && g <= 300) GAIN_PERCENT = g;
+    }
+})();
+
+
   })();
 
+  function ensureAudioGraph(){
+    if (!audioCtx) {
+      try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const src = audioCtx.createMediaElementSource(audio);
+        gainNode = audioCtx.createGain();
+        src.connect(gainNode).connect(audioCtx.destination);
+        setGainPercent(GAIN_PERCENT);
+      } catch(e){
+        logln("web audio indisponible: " + e.message, "warn");
+      }
+    }
+    if (audioCtx && audioCtx.state === "suspended") {
+      audioCtx.resume().catch(function(){});
+    }
+  }
 
+  function setGainPercent(pct){
+    GAIN_PERCENT = Math.max(0, Math.min(300, pct|0));
+    if (gainNode) {
+      const g = GAIN_PERCENT / 100; // 100 -> 1.0
+      gainNode.gain.value = g;
+    }
+    if (gainVal) gainVal.textContent = GAIN_PERCENT + "%";
+    if (gainSlider && String(gainSlider.value) !== String(GAIN_PERCENT)) {
+      gainSlider.value = String(GAIN_PERCENT);
+    }
+    logln("gain logiciel: " + GAIN_PERCENT + "%", "muted");
+  }
 
-
-
-
+  if (gainSlider) {
+    gainSlider.value = String(GAIN_PERCENT);
+    gainVal.textContent = GAIN_PERCENT + "%";
+    gainSlider.addEventListener("input", function(){
+      setGainPercent(parseInt(gainSlider.value, 10));
+    });
+  }
 
   function pad2(n){ return String(n).padStart(2,"0"); }
 
@@ -177,7 +226,6 @@
   }
 
   function tryPlayNow(){
-    // appeler play() immediatement pendant le handler de clic pour respecter la politique autoplay
     var p = audio.play();
     if(p && typeof p.then === "function"){
       p.then(function(){ logln("lecture demarree", "ok"); })
@@ -189,8 +237,6 @@
     destroyHls();
     audio.autoplay = true;
     if(window.Hls && Hls.isSupported()){
-     // hls = new Hls({liveDurationInfinity:true, enableWorker:true});
-
       hls = new Hls({
         liveDurationInfinity: true,
         enableWorker: true,
@@ -198,15 +244,13 @@
         maxMaxBufferLength: 60,
         backBufferLength: 0
       });
-
       hls.attachMedia(audio);
       hls.on(Hls.Events.MEDIA_ATTACHED, function(){ hls.loadSource(url); });
       hls.on(Hls.Events.MANIFEST_PARSED, function(){
         logln("manifest ok: " + url, "ok");
+        ensureAudioGraph();   // active le gain logiciel (Android Chrome)
         tryPlayNow();
       });
-      // hls.on(Hls.Events.ERROR, function(e, data){ logln("hls error: " + data.type + " - " + data.details, "err"); });
-
       hls.on(Hls.Events.ERROR, function(e, data){
         if (!data.fatal) { return; }
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
@@ -220,16 +264,17 @@
           try { hls.destroy(); } catch(_) {}
         }
       });
-
     } else {
       audio.src = url;
       audio.addEventListener("loadedmetadata", function once(){
         audio.removeEventListener("loadedmetadata", once);
         logln("manifest ok (natif): " + url, "ok");
+        ensureAudioGraph();
         tryPlayNow();
       });
     }
     // appel immediat pour rester dans la pile de l evenement utilisateur
+    ensureAudioGraph();
     tryPlayNow();
   }
 
@@ -401,19 +446,8 @@
   });
 
   // init
-
-
-  // volume initial + bridage
   audio.volume = Math.max(0, Math.min(1, INITIAL_VOLUME));
   logln("volume initial : " + Math.round(audio.volume*100) + " %", "muted");
-  // audio.addEventListener("volumechange", function(){
-  //   if (MAX_VOLUME != null && audio.volume > MAX_VOLUME){
-  //     audio.volume = MAX_VOLUME;
-  //     logln("volume limité à " + Math.round(MAX_VOLUME*100) + " %", "warn");
-  //   }
-  // });
-
-
 
   prefillMinus20h();
   logln("pret. demarrage auto au clic (sinon clic sur play si le navigateur l exige).", "muted");
