@@ -163,9 +163,6 @@
       const g = parseInt(qs.get("gain"), 10);
       if (!isNaN(g) && g >= 0 && g <= 300) GAIN_PERCENT = g;
     }
-})();
-
-
   })();
 
   function ensureAudioGraph(){
