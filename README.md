@@ -1,6 +1,6 @@
 # Lecteur France Culture
 
-Ce projet fournit une page HTML unique (`lecteur.html`) pour écouter France Culture en direct ou avec un décalage temporel. L'interface expose plusieurs contrôles pour jouer le flux live, revenir à un horaire précis (par timestamp Unix ou date ISO), ou lancer automatiquement le journal de 19h calculé pour l'heure de Paris.
+Ce projet fournit une page HTML unique (`lecteur.html`) pour écouter France Culture en direct, ou avec un décalage temporel qui fonctionne jusqu'à un délai de 24h. L'interface expose plusieurs contrôles pour jouer le flux live, revenir à un horaire précis (par timestamp Unix ou date ISO), ou lancer automatiquement le journal de 19h calculé pour l'heure de Paris.
 
 ## Pré-requis
 - Navigateur moderne avec prise en charge de l'audio HTML5 et de l'API Web Audio.
