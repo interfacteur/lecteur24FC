@@ -98,6 +98,13 @@
   <small class="muted">url: gain=150 (et vol=15)</small>
 </div>
 
+<div class="row">
+  <label for="speed">vitesse de lecture</label>
+  <input id="speed" type="range" min="0.5" max="2" step="0.05" value="1">
+  <span id="speedVal" class="mono muted">1.00x</span>
+  <small class="muted">ralentir/accelerer (Chrome Android ok)</small>
+</div>
+
 <audio id="player" controls preload="none" playsinline></audio>
 
 <div id="log" class="muted mono"></div>
@@ -136,6 +143,9 @@
   var gainSlider = document.getElementById("gain");
   var gainVal = document.getElementById("gainVal");
 
+  var speedSlider = document.getElementById("speed");
+  var speedVal = document.getElementById("speedVal");
+
   var hls = null;
 
   // --- volume initial et params url ---
@@ -146,6 +156,8 @@
   let audioCtx = null;
   let gainNode = null;
   let GAIN_PERCENT = 100; // 100% = x1.0
+  let PLAYBACK_RATE = 1.0;
+  let resumeOnFocus = false;
 
   // surcharge via URL: ?vol=15 (ou 0.15), ?gain=150
   (function(){
@@ -205,6 +217,17 @@
 
   function pad2(n){ return String(n).padStart(2,"0"); }
 
+  function setPlaybackRate(rate){
+    var r = Math.max(0.5, Math.min(2, parseFloat(rate)));
+    PLAYBACK_RATE = isFinite(r) ? r : 1.0;
+    audio.playbackRate = PLAYBACK_RATE;
+    if (speedVal) speedVal.textContent = PLAYBACK_RATE.toFixed(2) + "x";
+    if (speedSlider && String(speedSlider.value) !== String(PLAYBACK_RATE)) {
+      speedSlider.value = String(PLAYBACK_RATE);
+    }
+    logln("vitesse: " + PLAYBACK_RATE.toFixed(2) + "x", "muted");
+  }
+
   function logln(s, cls){
     var e = document.createElement("div");
     if(cls) e.className = cls;
@@ -246,6 +269,7 @@
       hls.on(Hls.Events.MANIFEST_PARSED, function(){
         logln("manifest ok: " + url, "ok");
         ensureAudioGraph();   // active le gain logiciel (Android Chrome)
+        setPlaybackRate(PLAYBACK_RATE);
         tryPlayNow();
       });
       hls.on(Hls.Events.ERROR, function(e, data){
@@ -267,6 +291,7 @@
         audio.removeEventListener("loadedmetadata", once);
         logln("manifest ok (natif): " + url, "ok");
         ensureAudioGraph();
+        setPlaybackRate(PLAYBACK_RATE);
         tryPlayNow();
       });
     }
@@ -445,6 +470,38 @@
   // init
   audio.volume = Math.max(0, Math.min(1, INITIAL_VOLUME));
   logln("volume initial : " + Math.round(audio.volume*100) + " %", "muted");
+
+  if (speedSlider) {
+    speedSlider.addEventListener("input", function(){
+      setPlaybackRate(speedSlider.value);
+    });
+    setPlaybackRate(PLAYBACK_RATE);
+  }
+
+  audio.addEventListener("play", function(){
+    resumeOnFocus = true;
+    ensureAudioGraph();
+  });
+
+  audio.addEventListener("ended", function(){
+    resumeOnFocus = false;
+  });
+
+  document.addEventListener("visibilitychange", function(){
+    if (!document.hidden) {
+      ensureAudioGraph();
+      if (audioCtx && audioCtx.state === "suspended") {
+        audioCtx.resume().catch(function(){});
+      }
+      if (resumeOnFocus && audio.paused) {
+        audio.play().catch(function(e){
+          logln("reprise lecture interrompue: " + e.name, "warn");
+        });
+      }
+    } else if (!audio.paused) {
+      resumeOnFocus = true;
+    }
+  });
 
   prefillMinus20h();
   logln("pret. demarrage auto au clic (sinon clic sur play si le navigateur l exige).", "muted");
