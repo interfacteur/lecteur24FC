@@ -2,9 +2,11 @@
 
 Ce projet fournit une page HTML unique (`lecteur.html`) pour écouter France Culture en direct, ou avec un décalage temporel qui fonctionne jusqu'à un délai de 24h. L'interface expose plusieurs contrôles pour jouer le flux live, revenir à un horaire précis (par timestamp Unix ou date ISO), ou lancer automatiquement le journal de 19h calculé pour l'heure de Paris.
 
-Il a été généré par ChatGPT à partir d'un développement "legacy" (remontant à plusieurs années.)
-- Utilisation première de ChatGPT via l'interface de chat pour générer le code (usage génératif classique), avant que je n'utilise Codex.
-- Utilisations suivantes de ChatGPT via Codex pour l'évolution du code.
+Important : projet prévu pour mon propre usage, dont je n'ai pris la peine de vérifier ni fiabilité ni compatibilité.
+
+Il a été généré par ChatGPT à partir d'un développement "legacy" remontant à plusieurs années :
+- utilisation première de ChatGPT via l'interface de chat pour générer le code (usage génératif classique), avant que je n'utilise Codex ;
+- utilisations suivantes de ChatGPT via Codex pour l'évolution du code.
 
 ## Pré-requis
 - Navigateur moderne avec prise en charge de l'audio HTML5 et de l'API Web Audio.
