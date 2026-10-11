@@ -374,7 +374,7 @@
 
   function paris19hToUnix(y,m,d){
     var offsetMin = getParisOffsetMinutesForDate(y,m,d);
-    var utcMs = Date.UTC(y, m-1, d, 19, 0, 0) - offsetMin*60000;
+    var utcMs = Date.UTC(y, m-1, d, 18, 59, 45) - offsetMin*60000;
     return Math.floor(utcMs/1000);
   }
 
@@ -460,7 +460,7 @@
     try{
       var u = computeLast19hUnix();
       var dt = new Date(u*1000).toISOString();
-      last19h.textContent = "derniere 19h (utc): " + dt + " | unix " + u;
+      last19h.textContent = "depart du journal (utc): " + dt + " | unix " + u;
       playDelayForUnix(u);
     }catch(e){
       logln("erreur bouton 19h: " + e.message, "err");
